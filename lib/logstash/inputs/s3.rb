@@ -13,7 +13,7 @@ require "stud/temporary"
 # Each line from each file generates an event.
 # Files ending in `.gz` are handled as gzip'ed files.
 class LogStash::Inputs::S3 < LogStash::Inputs::Base
-  include LogStash::PluginMixins::AwsConfig
+  include LogStash::PluginMixins::AwsConfig::V2
 
   config_name "s3"
 
@@ -362,11 +362,6 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
     else
       s3 = Aws::S3::Resource.new(aws_options_hash)
     end
-  end
-
-  private
-  def aws_service_endpoint(region)
-    return { :s3_endpoint => region }
   end
 
   module SinceDB

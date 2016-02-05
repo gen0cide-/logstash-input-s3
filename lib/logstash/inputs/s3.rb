@@ -8,6 +8,8 @@ require "tmpdir"
 require "stud/interval"
 require "stud/temporary"
 
+require 'pry'
+
 # Stream events from files from a S3 bucket.
 #
 # Each line from each file generates an event.
@@ -186,6 +188,8 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
         end
       end
     end
+  rescue => e
+    binding.pry
   end # def process_local_log
 
   private
@@ -302,6 +306,8 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
 
     delete_file_from_bucket(object)
     File.delete(filename)
+  rescue => e
+    binding.pry
   end
 
   private

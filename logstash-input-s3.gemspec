@@ -22,6 +22,7 @@ Gem::Specification.new do |s|
   # Gem dependencies
   s.add_runtime_dependency "logstash-core", '>= 1.4.0'
   s.add_runtime_dependency 'stud', '~> 0.0.18'
+  s.add_runtime_dependency 'parallel'
   s.add_runtime_dependency 'aws-sdk-resources', '>= 2.0.33'
 
   s.add_runtime_dependency 'pry'

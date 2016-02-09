@@ -8,6 +8,8 @@ require "tmpdir"
 require "stud/interval"
 require "stud/temporary"
 
+require 'parallel'
+
 require 'pry'
 
 # Stream events from files from a S3 bucket.
@@ -144,15 +146,23 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
   def process_files(queue)
     objects = list_new_files
 
-    objects.each do |key|
+    final_lastmod = @s3bucket.object(objects[-1]).last_modified
+
+    Parallel.each(objects, in_threads: 32) do |key|
       @logger.debug("S3 input processing", :bucket => @bucket, :key => key)
-
-      lastmod = @s3bucket.object(key).last_modified
-
-      process_log(queue, key)
-
+      lastmod = @s3bucket.object(key).last_modified  
+      object = @s3bucket.object(key)
+      filename = File.join(temporary_directory, File.basename(key))
+      @logger.debug("Downloading #{filename}")
+      download_remote_file(object, filename)
+      @logger.debug("Processing #{filename}")
+      process_local_log(queue, filename)
+      File.delete(filename)
       sincedb.write(lastmod)
     end
+    sincedb.write(final_lastmod)
+  rescue => e
+    @logger.error(e.backtrace)
   end # def process_files
 
 
@@ -165,31 +175,34 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
     # So all IO stuff: decompression, reading need to be done in the actual
     # input and send as bytes to the codecs.
     read_file(filename) do |line|
-      @codec.decode(line) do |event|
-        # We are making an assumption concerning cloudfront
-        # log format, the user will use the plain or the line codec
-        # and the message key will represent the actual line content.
-        # If the event is only metadata the event will be drop.
-        # This was the behavior of the pre 1.5 plugin.
-        #
-        # The line need to go through the codecs to replace
-        # unknown bytes in the log stream before doing a regexp match or
-        # you will get a `Error: invalid byte sequence in UTF-8'
-        if event_is_metadata?(event)
-          @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
-          update_metadata(metadata, event)
-        else
-          decorate(event)
+      begin 
+        @codec.decode(line) do |event|
+          # We are making an assumption concerning cloudfront
+          # log format, the user will use the plain or the line codec
+          # and the message key will represent the actual line content.
+          # If the event is only metadata the event will be drop.
+          # This was the behavior of the pre 1.5 plugin.
+          #
+          # The line need to go through the codecs to replace
+          # unknown bytes in the log stream before doing a regexp match or
+          # you will get a `Error: invalid byte sequence in UTF-8'
+          if event_is_metadata?(event)
+            @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
+            update_metadata(metadata, event)
+          else
+            decorate(event)
 
-          event["cloudfront_version"] = metadata[:cloudfront_version] unless metadata[:cloudfront_version].nil?
-          event["cloudfront_fields"]  = metadata[:cloudfront_fields] unless metadata[:cloudfront_fields].nil?
-
-          queue << event
+            event["cloudfront_version"] = metadata[:cloudfront_version] unless metadata[:cloudfront_version].nil?
+            event["cloudfront_fields"]  = metadata[:cloudfront_fields] unless metadata[:cloudfront_fields].nil?          
+            queue << event
+          end
         end
+      rescue => e
+        @logger.error("LINE ERROR: #{filename}: #{line}")        
       end
     end
   rescue => e
-    binding.pry
+
   end # def process_local_log
 
   private
@@ -293,19 +306,21 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
 
   private
   def process_log(queue, key)
-    object = @s3bucket.object(key)
+    # object = @s3bucket.object(key)
 
-    filename = File.join(temporary_directory, File.basename(key))
+    # filename = File.join(temporary_directory, File.basename(key))
 
-    download_remote_file(object, filename)
+    # @logger.error("Downloading #{filename}")
 
-    process_local_log(queue, filename)
+    # download_remote_file(object, filename)
 
-    backup_to_bucket(object)
-    backup_to_dir(filename)
+    # process_local_log(queue, filename)
 
-    delete_file_from_bucket(object)
-    File.delete(filename)
+    # backup_to_bucket(object)
+    # backup_to_dir(filename)
+
+    # delete_file_from_bucket(object)
+    # File.delete(filename)
   rescue => e
     binding.pry
   end
